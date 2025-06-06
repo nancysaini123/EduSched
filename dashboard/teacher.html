@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teacher Dashboard</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="left-links">
+        <a style="padding-right: 25rem">
+          <img src="EduSched.png" alt="" class="logo" />
+        </a>
+      </div>
+      <div class="right-link">
+        <button onclick="logout()">Logout</button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <h2>Welcome, <span id="teacherName">Teacher</span></h2>
+    <h3>Appointments</h3>
+    <table id="teacherAppointmentsTable">
+      <thead>
+        <tr>
+          <th>Student Email</th>
+          <th>Date & Time</th>
+          <th>Message</th>
+          <th>Status</th>
+          <th>Update</th>
+        </tr>
+      </thead>
+      <tbody id="appointmentsList">
+        <!-- Rows will be inserted here -->
+      </tbody>
+    </table>
+  </main>
+
+  <footer>
+    <p>&copy; EduSched | 2025 Student-Teacher Booking Appointment System</p>
+  </footer>
+
+  <script type="module">
+  import { auth, db } from '../js/firebase-config.js';
+  import { signOut } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
+  import { doc, getDoc, updateDoc, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+
+  // 🔐 Logout
+  window.logout = function () {
+    signOut(auth).then(() => {
+      window.location.href = 'index.html';
+    }).catch((error) => {
+      console.error('Logout Error:', error);
+    });
+  };
+
+  // 📋 Load appointments for this teacher
+  async function loadTeacherAppointments(teacherName) {
+    try {
+      const q = query(collection(db, "appointments"), where("teacherName", "==", teacherName));
+      const snapshot = await getDocs(q);
+
+      const table = document.getElementById("appointmentsList");
+      table.innerHTML = "";
+
+      if (snapshot.empty) {
+        table.innerHTML = "<tr><td colspan='5'>No appointments found.</td></tr>";
+        return;
+      }
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${data.studentEmail || 'N/A'}</td>
+          <td>${data.time || 'N/A'}</td>
+          <td>${data.message || 'N/A'}</td>
+          <td>${data.status || 'pending'}</td>
+          <td>
+            <select style="width:110px" id="status-${doc.id}">
+              <option value="pending" ${data.status === 'pending' ? 'selected' : ''}>Pending</option>
+              <option value="approved" ${data.status === 'approved' ? 'selected' : ''}>Approved</option>
+              <option value="rejected" ${data.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+            </select>
+            <button style="width:110px" onclick="updateStatus('${doc.id}')">Update</button>
+          </td>
+        `;
+        table.appendChild(row);
+      });
+    } catch (error) {
+      console.error("Error loading appointments:", error.message);
+    }
+  }
+
+
+  // 🧾 Get teacher name & appointments
+  auth.onAuthStateChanged(async (user) => {
+    if (!user) {
+      alert("Please log in.");
+      window.location.href = 'index.html';
+      return;
+    }
+
+    try {
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const teacherName = userSnap.data().name || "Teacher";
+        document.getElementById("teacherName").textContent = teacherName;
+        loadTeacherAppointments(teacherName);
+      } else {
+        console.warn("Teacher document not found.");
+      }
+    } catch (err) {
+      console.error("Error fetching teacher name:", err.message);
+    }
+  });
+  window.updateStatus = async function (appointmentId) {
+    const status = document.getElementById(`status-${appointmentId}`).value;
+    try {
+      const appointmentRef = doc(db, "appointments", appointmentId);
+      await updateDoc(appointmentRef, {
+        status: status
+      });
+      alert("Appointment status updated.");
+      // Reload appointments
+      const name = document.getElementById("teacherName").textContent;
+      loadTeacherAppointments(name);
+    } catch (error) {
+      console.error("Error updating status:", error.message);
+      alert("Failed to update status.");
+    }
+  };
+
+</script>
+
+  </body>
+</html>

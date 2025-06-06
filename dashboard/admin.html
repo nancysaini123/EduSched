@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    
+    .pagination {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      padding-left: 20%;
+      width: 60%;
+    }
+    .pagination button {
+      padding: 0.4rem 0.8rem;
+      border: 1px solid #ccc;
+      background-color: #f8f8f8;
+      cursor: pointer;
+    }
+    .pagination button.active {
+      background-color: rgb(42, 211, 211);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="left-links">
+        <a style="padding-right: 25rem">
+          <img src="EduSched.png" alt="" class="logo" />
+        </a>
+      </div>
+      <div class="right-link">
+        <button onclick="logout()">Logout</button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <h2>Welcome, <span id="adminName">Admin</span></h2>
+    <h3>All Registered Users</h3>
+    <div class="controls">
+      <input style="width: 60%;" type="text" id="searchInput" placeholder="Search by name or role" />
+      <select style="width: 15%;" id="roleFilter">
+        <option value="">Roles</option>
+        <option value="admin">Admin</option>
+        <option value="student">Student</option>
+        <option value="teacher">Teacher</option>
+      </select>
+      <button style="width: 15%;" onclick="resetFilters()">Reset</button>
+    </div>
+    <table id="userTable">
+      <thead>
+        <tr>
+          <th onclick="sortUsers('name')">Name</th>
+          <th onclick="sortUsers('email')">Email</th>
+          <th onclick="sortUsers('role')">Role</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="userList"></tbody>
+    </table>
+    <div class="pagination" id="paginationControls"></div>
+  </main>
+
+  <footer>
+    <p>&copy; EduSched | 2025 Student-Teacher Appointment Booking system</p>
+  </footer>
+
+  <script type="module">
+    import { auth, db } from '../js/firebase-config.js';
+    import {
+      signOut
+    } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
+    import {
+      collection,
+      getDocs,
+      deleteDoc,
+      doc
+    } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+    import { getDoc } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+
+    window.logout = function () {
+      signOut(auth).then(() => {
+        window.location.href = 'index.html';
+      }).catch((error) => {
+        console.error('Logout Error:', error);
+      });
+    };
+
+    let allUsers = [];
+    let filteredUsers = [];
+    let sortedField = '';
+    let sortAsc = true;
+    let currentPage = 1;
+    const rowsPerPage = 5;
+    
+    function fetchAdminName(user) {
+      const docRef = doc(db, 'users', user.uid);
+      getDoc(docRef).then(docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          document.getElementById('adminName').textContent = data.name || 'Admin';
+        }
+      }).catch(err => console.error('Error fetching admin name:', err));
+    }
+
+    async function loadUsers() {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'users'));
+        allUsers = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        applyFilters();
+      } catch (error) {
+        console.error("Failed to load users:", error);
+        document.getElementById('userList').innerHTML = "<tr><td colspan='4'>Error loading users.</td></tr>";
+      }
+    }
+
+    function renderUsers(users) {
+      const userList = document.getElementById('userList');
+      if (users.length === 0) {
+        userList.innerHTML = "<tr><td colspan='4'>No users found.</td></tr>";
+        return;
+      }
+      const start = (currentPage - 1) * rowsPerPage;
+      const paginatedUsers = users.slice(start, start + rowsPerPage);
+
+      userList.innerHTML = paginatedUsers.map(user => `
+        <tr>
+          <td>${user.name || 'N/A'}</td>
+          <td>${user.email || 'N/A'}</td>
+          <td>${user.role || 'N/A'}</td>
+          <td><button class="delete-btn" onclick="deleteUserFromDB('${user.id}')">Delete</button></td>
+        </tr>
+      `).join('');
+
+      renderPagination(users.length);
+    }
+
+    function renderPagination(totalRows) {
+      const pageCount = Math.ceil(totalRows / rowsPerPage);
+      const pagination = document.getElementById('paginationControls');
+      pagination.innerHTML = '';
+      for (let i = 1; i <= pageCount; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.className = i === currentPage ? 'active' : '';
+        btn.onclick = () => {
+          currentPage = i;
+          renderUsers(filteredUsers);
+        };
+        pagination.appendChild(btn);
+      }
+    }
+
+    function applyFilters() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const role = document.getElementById('roleFilter').value;
+      filteredUsers = allUsers.filter(user => {
+        const matchSearch = user.name?.toLowerCase().includes(search) || user.role?.toLowerCase().includes(search);
+        const matchRole = !role || user.role === role;
+        return matchSearch && matchRole;
+      });
+      currentPage = 1;
+      renderUsers(filteredUsers);
+    }
+
+    window.sortUsers = function (field) {
+      if (sortedField === field) sortAsc = !sortAsc;
+      else {
+        sortedField = field;
+        sortAsc = true;
+      }
+      filteredUsers.sort((a, b) => {
+        const aValue = (a[field] || '').toLowerCase();
+        const bValue = (b[field] || '').toLowerCase();
+        return sortAsc ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+      });
+      currentPage = 1;
+      renderUsers(filteredUsers);
+    };
+
+    window.deleteUserFromDB = async function (id) {
+      if (confirm("Are you sure you want to delete this user from Firestore?")) {
+        try {
+          await deleteDoc(doc(db, 'users', id));
+          allUsers = allUsers.filter(u => u.id !== id);
+          applyFilters();
+          alert("User deleted from Firestore.");
+        } catch (error) {
+          alert("Error deleting user: " + error.message);
+        }
+      }
+    };
+
+    window.resetFilters = function () {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('roleFilter').value = '';
+      applyFilters();
+    };
+
+    document.getElementById('searchInput').addEventListener('input', applyFilters);
+    document.getElementById('roleFilter').addEventListener('change', applyFilters);
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        fetchAdminName(user);
+        loadUsers();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Student Dashboard</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <div class="left-links">
+        <a style="padding-right: 25rem">
+          <img src="EduSched.png" alt="" class="logo">
+        </a>
+      </div>
+      <div class="right-link">
+        <button onclick="logout()">Logout</button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <h2>Welcome, <span id="studentName">Student</span></h2>
+    <h3>Book Your Appointment</h3>
+    <form id="bookingForm">
+      <input class="btn" type="text" id="teacherSearch" placeholder="Search teacher..." /><br>
+      <select class="btn" id="teacherSelect" size="5" required style=" overflow-y: auto; max-height: 2rem;">
+        <option value="">-- Select Teacher --</option>
+      </select><br>
+      <input class="btn" type="datetime-local" id="appointmentTime" required><br>
+      <input class="btn" type="text" id="appointmentMessage" placeholder="Message" required><br>
+      <button class="btn" type="submit">Submit</button>
+    </form>
+
+    <h3>My Appointments</h3>
+    <div style="margin-bottom: 1rem;">
+      <label for="statusFilter"></label>
+      <select id="statusFilter">
+        <option value="">All</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </select>
+    </div>
+    <table id="appointmentsTable">
+      <thead>
+        <tr>
+          <th>Teacher</th>
+          <th>Date & Time</th>
+          <th>Message</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="appointmentsList">
+        <!-- Rows go here -->
+      </tbody>
+    </table>
+  </main>
+  <footer>
+    <p>&copy; Edusched | 2025 Student-Teacher Appointment Booking System</p>
+  </footer>
+  <script type="module">
+    import { auth, db } from '../js/firebase-config.js';
+    import { signOut } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
+    import { collection,  addDoc } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+    import { getDoc, doc } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+    import { getDocs, query, where} from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+    
+    // Logout function
+    window.logout = function () {
+      signOut(auth).then(() => {
+        window.location.href = '../dashboard/index.html';
+      }).catch((error) => {
+        console.error('Logout Error:', error);
+      });
+    };
+
+    // Book Appointment
+    document.getElementById('bookingForm').addEventListener('submit', async function(event) {
+      event.preventDefault();
+      const teacherName = document.getElementById("teacherSelect").value;
+      const time = document.getElementById('appointmentTime').value;
+      const message = document.getElementById('appointmentMessage').value;
+      const user = auth.currentUser;
+
+      if (!user) {
+        alert("Please log in first.");
+        return;
+      }
+
+      try {
+        await addDoc(collection(db, 'appointments'), {
+          studentId: user.uid,
+          studentEmail: user.email,
+          teacherName: teacherName,
+          time: time,
+          message: message,
+          status: 'pending',
+          timestamp: new Date()
+        });
+
+        alert("Appointment booked successfully!");
+        document.getElementById('bookingForm').reset();
+      } catch (error) {
+        alert("Failed to book appointment: " + error.message);
+      }
+    });
+    let studentAppointments = []; // store appointments for filtering
+    async function loadAppointments() {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const q = query(collection(db, "appointments"), where("studentId", "==", user.uid));
+        const snapshot = await getDocs(q);
+        studentAppointments = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        renderAppointments(studentAppointments);
+      } catch (error) {
+        console.error("Error loading appointments:", error);
+        document.getElementById("appointmentsList").innerHTML = "<tr><td colspan='5'>Error loading data.</td></tr>";
+      }
+    }
+    function renderAppointments(appointments) {
+      const list = document.getElementById("appointmentsList");
+      list.innerHTML = "";
+      if (appointments.length === 0) {
+        list.innerHTML = "<tr><td colspan='5'>No appointments found.</td></tr>";
+        return;
+      }
+      appointments.forEach(data => {
+        const row = `
+        <tr>
+          <td>${data.teacherName || 'N/A'}</td>
+          <td>${data.time || 'N/A'}</td>
+          <td>${data.message || 'N/A'}</td>
+          <td>${data.status || 'pending'}</td>
+          <td>
+            <button style="width:100px" onclick="cancelAppointment('${data.id}')">Cancel</button>
+          </td>
+        </tr>
+        `;
+        list.innerHTML += row;
+      });
+    }
+    window.cancelAppointment = async function (appointmentId) {
+      if (!confirm("Are you sure you want to cancel this appointment?")) return;
+
+      try {
+        await deleteDoc(doc(db, "appointments", appointmentId));
+        alert("Appointment cancelled.");
+        loadAppointments(); // reload after deletion
+      } catch (error) {
+        console.error("Failed to cancel appointment:", error.message);
+        alert("Error cancelling appointment.");
+      }
+    };
+    document.getElementById("statusFilter").addEventListener("change", function () {
+      const filter = this.value;
+      if (!filter) {
+        renderAppointments(studentAppointments);
+      } else {
+        const filtered = studentAppointments.filter(app => app.status === filter);
+        renderAppointments(filtered);
+      }
+    });
+
+
+    async function fetchStudentName(user) {
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          document.getElementById('studentName').textContent = data.name || 'student';
+        } else {
+          console.warn("Student document not found.");
+        }
+      } catch (error) {
+        console.error("Error fetching student name:", error.message);
+      }
+    }
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        fetchStudentName(user);
+        populateTeacherDropdown();
+        loadAppointments(); // ✅ this will now show appointments
+      } else {
+        window.location.href = '../index.html';
+      }
+    });
+
+
+    let allTeachers = [];
+    async function populateTeacherDropdown() {
+      try {
+        const teacherQuery = query(collection(db, 'users'), where('role', '==', 'teacher'));
+        const snapshot = await getDocs(teacherQuery);
+        allTeachers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderTeacherOptions(allTeachers);
+      } catch (error) {
+        console.error("Error loading teachers:", error.message);
+      }
+    }
+
+    function renderTeacherOptions(teachers) {
+      const select = document.getElementById('teacherSelect');
+      select.innerHTML = '<option value="">-- Select Teacher --</option>'; // Reset options
+
+      if (teachers.length === 0) {
+        const opt = document.createElement('option');
+        opt.disabled = true;
+        opt.textContent = "No teachers found.";
+        select.appendChild(opt);
+        return;
+      }
+
+      teachers.forEach(teacher => {
+        const option = document.createElement('option');
+        option.value = teacher.name;
+        option.textContent = `${teacher.name} (${teacher.email})`;
+        select.appendChild(option);
+      });
+    }
+    document.getElementById("teacherSearch").addEventListener("input", function () {
+      const searchValue = this.value.toLowerCase();
+      const filtered = allTeachers.filter(t =>
+        t.name.toLowerCase().includes(searchValue) ||
+        t.email.toLowerCase().includes(searchValue)
+      );
+      renderTeacherOptions(filtered);
+    });
+
+  </script>
+</body>
+</html>
